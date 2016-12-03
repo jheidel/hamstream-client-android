@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HamStream</string>
+    <string name="audioservice_desc">HamStream live audio</string>
+</resources>
