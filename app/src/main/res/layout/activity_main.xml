@@ -29,11 +29,18 @@
         android:gravity="center"
         android:layout_alignParentStart="true">
 
+        <Button
+            android:text="Stop Streaming"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/stopbutton"
+            android:layout_weight="1" />
+
         <TextView
             android:text="Client Stats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="16dip"
+            android:paddingTop="25dip"
             android:id="@+id/clientStatsLabel" />
 
         <GridLayout
