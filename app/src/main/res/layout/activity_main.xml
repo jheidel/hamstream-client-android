@@ -37,6 +37,35 @@
             android:layout_weight="1" />
 
         <TextView
+            android:text="Volume Control"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:id="@+id/textView3"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <SeekBar
+                style="@style/Widget.AppCompat.SeekBar.Discrete"
+                android:layout_width="227dp"
+                android:layout_height="wrap_content"
+                android:max="7"
+                android:progress="0"
+                android:id="@+id/volumeBar" />
+
+            <TextView
+                android:text="0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:id="@+id/volumeLabel"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <TextView
             android:text="Client Stats"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -173,6 +202,21 @@
                 android:layout_weight="1" />
 
         </GridLayout>
+
+
+        <Button
+            android:text="Power off Pi"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/powerbutton"
+            android:layout_weight="1" />
+        <Button
+            android:text="Switch Pi to home WiFi"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/wifiswitchbutton"
+            android:layout_weight="1" />
+
 
     </LinearLayout>
 

@@ -6,25 +6,34 @@ import android.graphics.drawable.Icon;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.net.ConnectivityManager;
 import android.os.Handler;
 import android.util.Log;
 import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiManager;
+
+import java.util.Arrays;
+import java.util.List;
 
 import org.java_websocket.WebSocket;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
+import org.java_websocket.drafts.Draft_6455;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
+import java.util.Optional;
 import java.util.Timer;
 import java.util.TimerTask;
 import android.app.Notification;
 import android.os.Binder;
 import 	android.app.NotificationManager;
 import java.lang.Math;
+import android.net.NetworkInfo;
 
 public class AudioService extends Service {
     public static final String LOG = "AudioService";
@@ -38,7 +47,7 @@ public class AudioService extends Service {
     private AudioDucker mDucker;
 
     private WebSocketClient mAudioSocket;
-
+    private AudioManager mAudioManager;
 
     private AutoReconnecter mReconnecter;
 
@@ -56,6 +65,22 @@ public class AudioService extends Service {
 
         public Boolean isConnected() {
             return mAudioSocket.getReadyState() == WebSocket.READYSTATE.OPEN;
+        }
+
+        public int getVolume() {
+            return mAudioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL);
+        }
+
+        public int getMaxVolume() {
+            return mAudioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL);
+        }
+
+        void setVolume(int volume) {
+            if (volume < 0 || volume > getMaxVolume()) {
+                return;
+            }
+            mAudioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, volume, 0);
+            Log.i(LOG, String.format("Volume set to %d/%d", getVolume(), getMaxVolume()));
         }
     }
 
@@ -91,6 +116,8 @@ public class AudioService extends Service {
     public void onCreate() {
         Log.i(LOG, "*** Audio service created.");
 
+        mAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+
         Notification notification = buildPersistentNotification();
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.notify(ONGOING_NOTIFICATION_ID, notification);
@@ -108,6 +135,47 @@ public class AudioService extends Service {
         connectAudio();
 
         mReconnecter.startWatching();
+
+
+        // TODO experimenting with wifi state here.
+        ConnectivityManager connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo wifiNetworkInfo = connectivity.getActiveNetworkInfo();
+
+        Log.i(LOG, "CURRENT NETWORK INFO: " + wifiNetworkInfo.toString());
+
+
+        // TODO move this to a periodic thread.
+
+
+        WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+
+
+        List<WifiConfiguration> conf = wifiManager.getConfiguredNetworks();
+
+        // TODO handle not found.
+        WifiConfiguration hamNet = conf.stream().filter(x -> x.SSID.equals("\"JH M HAM\"")).findFirst().get();
+
+        Log.i(LOG, "Found target ham network: " + hamNet.toString());
+
+        Log.i(LOG, "Current connection: " + wifiManager.getConnectionInfo().getSSID());
+
+        /*
+        if (!wifiManager.getConnectionInfo().getSSID().equals(hamNet.SSID)) {
+            Log.i(LOG, "Not connected to target. Reconnecting!");
+
+            wifiManager.disconnect();
+            wifiManager.enableNetwork(hamNet.networkId, true);
+            wifiManager.reconnect();
+
+        }
+        */
+
+        // TODO make better.
+
+
+
+
+
     }
 
     public void onDestroy() {
@@ -124,19 +192,32 @@ public class AudioService extends Service {
     private void initAudio() {
 
         // TODO make constant
-        int byteBuffer = 12000;
+        int byteBuffer = 24000;
 
         // TODO this might be memory-leaky?
-        mDucker = new AudioDucker((AudioManager)getSystemService(Context.AUDIO_SERVICE));
 
-        mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, 48000, AudioFormat.CHANNEL_OUT_MONO,
+
+        mDucker = new AudioDucker(mAudioManager);
+
+        // Using notification stream to allow separate music mixing.
+        mAudioTrack = new AudioTrack(AudioManager.STREAM_VOICE_CALL, 48000, AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_16BIT, byteBuffer,
                 AudioTrack.MODE_STREAM);
         mAudioTrack.play();
+
     }
 
     // TODO reconnections
     private void connectAudio() {
+        if (mAudioSocket != null) {
+            Log.i(LOG, "Disconnecting in order to reconnect.");
+            try {
+                mAudioSocket.closeBlocking();
+            } catch(InterruptedException e) {
+                Log.e(LOG, e.getMessage());
+            }
+        }
+
         URI uri;
         try {
             // TODO: more generic.
@@ -160,6 +241,7 @@ public class AudioService extends Service {
             public void onMessage(ByteBuffer bytes) {
                 mDucker.tickle();
                 bytesReceived += bytes.remaining();
+                //Log.i(LOG, String.format("Received %d bytes", bytes.remaining()));
                 mAudioTrack.write(bytes, bytes.remaining(), AudioTrack.WRITE_NON_BLOCKING);
                 mReconnecter.signalOk();
             }
@@ -176,7 +258,16 @@ public class AudioService extends Service {
             }
         };
         mReconnecter.setClient(mAudioSocket);
+
+        Log.i(LOG, "Starting blocking connect");
         mAudioSocket.connect();
+        /*
+        try {
+            mAudioSocket.connectBlocking();
+        } catch(InterruptedException e) {
+            Log.e(LOG, "Connect error: " + e.getMessage());
+        }*/
+        Log.i(LOG, "Connected!");
     }
 
 }

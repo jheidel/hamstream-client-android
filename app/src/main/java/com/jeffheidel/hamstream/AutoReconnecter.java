@@ -10,7 +10,7 @@ import org.java_websocket.client.WebSocketClient;
  * Created by Jeff on 12/3/2016.
  */
 
-// TODO: this class is awful crufty.
+// TODO: this class is so so awful crufty.
 
 public class AutoReconnecter {
     public static final String LOG = "AutoReconnecter";
@@ -26,12 +26,16 @@ public class AutoReconnecter {
     private static final double RECONNECT_EXP = 1.5;
     private static final long RECONNECT_DELAY_INITIAL = 50;
 
+    private Boolean dead = false;
+
     private Handler mReconnectHandler;
     private Runnable mReconnecter = new Runnable() {
         @Override
         public void run() {
             if (mClient.getReadyState() == WebSocket.READYSTATE.CLOSED) {
                 mReconnect.run();
+            } else {
+                Log.i(LOG, String.format("State is %s", mClient.getReadyState()));
             }
             mReconnectHandler.postDelayed(this, LIVE_CHECK_MS);
         }
@@ -58,6 +62,8 @@ public class AutoReconnecter {
     }
 
     public void triggerReconnect() {
+        if (dead) return;
+
         Log.i(LOG, String.format("Reconnecting after %d ms", reconnectDelayMs));
         mReconnectHandler.removeCallbacks(mReconnecter);
         mReconnectHandler.postDelayed(mReconnecter, reconnectDelayMs);
@@ -65,6 +71,7 @@ public class AutoReconnecter {
     }
 
     public void stop() {
+        dead = true;
         mReconnectHandler.removeCallbacks(mReconnecter);
     }
 }

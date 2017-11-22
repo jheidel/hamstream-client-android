@@ -1,7 +1,27 @@
 package com.jeffheidel.hamstream;
 
+import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
+import android.os.Bundle;
+import android.os.IBinder;
+import android.support.v7.app.AppCompatActivity;
+import android.text.format.Formatter;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ProgressBar;
+import android.widget.SeekBar;
+import android.widget.TextView;
+import org.java_websocket.drafts.Draft_6455;
 
-import org.java_websocket.WebSocket;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONException;
@@ -9,38 +29,16 @@ import org.json.JSONObject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-
-import android.content.ComponentName;
-import android.os.IBinder;
-import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.util.Log;
-import android.os.Build;
-import android.widget.ProgressBar;
-import android.widget.TextView;
-import java.nio.ByteBuffer;
-import android.media.AudioManager;
-import android.media.AudioTrack;
-import android.media.AudioFormat;
-import android.content.Context;
 import java.util.Timer;
 import java.util.TimerTask;
-import android.text.format.Formatter;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.widget.Button;
-import android.view.View;
 
 public class MainActivity extends AppCompatActivity {
-
-    // TODO: move some of this to a service to get better behavior?
 
     private WebSocketClient mStatsSocket;
     private AutoReconnecter mReconnecter;
 
     private Timer mTimerUI;
-
-
+    
     private AudioService.AudioServiceBinder mAudioServiceBinder;
 
     private ServiceConnection mConnection = new ServiceConnection() {
@@ -48,6 +46,16 @@ public class MainActivity extends AppCompatActivity {
         public void onServiceConnected(ComponentName className,
                                        IBinder service) {
             mAudioServiceBinder = (AudioService.AudioServiceBinder) service;
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    SeekBar sb = (SeekBar) findViewById(R.id.volumeBar);
+                    sb.setMax(mAudioServiceBinder.getMaxVolume());
+                    sb.setProgress(mAudioServiceBinder.getVolume());
+                }
+            });
+
         }
 
         @Override
@@ -62,26 +70,109 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        final Object networkReady = new Object();
+
+        Log.i("main", "waiting for network...");
+
+        final ConnectivityManager cm = (ConnectivityManager) getSystemService(
+                Context.CONNECTIVITY_SERVICE);
+        NetworkRequest.Builder req = new NetworkRequest.Builder();
+        req.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
+        cm.requestNetwork(req.build(), new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                Log.i("Main", String.format("Acquired WIFI transport capability on %s", network.toString()));
+                cm.bindProcessToNetwork(network);
+                synchronized (networkReady) {
+                    networkReady.notifyAll();
+                }
+            }
+        });
+
+        synchronized (networkReady) {
+            try {
+                networkReady.wait();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                return;
+            }
+        }
+        Log.i("main", "network ready, continuing");
+
         // Start audio streaming service and bind to it.
         Intent intent = new Intent(this, AudioService.class);
         startService(intent);
         bindService(intent, mConnection, 0);
 
-        final Button button = (Button) findViewById(R.id.stopbutton);
-        button.setOnClickListener(new View.OnClickListener() {
+        final Button stopbutton = (Button) findViewById(R.id.stopbutton);
+        stopbutton.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 Log.i("Main", "Stopping everything.");
                 Intent intent = new Intent(MainActivity.this, AudioService.class);
                 stopService(intent);
 
-                // TODO
-                finish();
+                finishAndRemoveTask();
 
                 // TODO: Enable once sure all cleanup happens nicely.
-                // System.exit(0);
+                Log.i("main", "Force exit.");
+                System.exit(0);
             }
         });
 
+        final Context myapp = this;
+        final Button powerbutton = (Button) findViewById(R.id.powerbutton);
+        powerbutton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                new AlertDialog.Builder(myapp)
+                        .setMessage("Are you sure you want to shut down the pi?")
+                        .setCancelable(false)
+                        .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int id) {
+                                Log.i("Main", "Sending shutdown command to the pi.");
+                                mStatsSocket.send("shutdown");
+                            }
+                        })
+                        .setNegativeButton("No", null)
+                        .show();
+            }
+        });
+
+        final Button wifiswitchbutton = (Button) findViewById(R.id.wifiswitchbutton);
+        wifiswitchbutton.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                new AlertDialog.Builder(myapp)
+                        .setMessage("Are you sure you want to switch the pi's WiFi network?")
+                        .setCancelable(false)
+                        .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int id) {
+                                Log.i("Main", "Sending wifiswitch command to the pi.");
+                                mStatsSocket.send("wifiswitch");
+                            }
+                        })
+                        .setNegativeButton("No", null)
+                        .show();
+            }
+        });
+
+        final SeekBar volbar = (SeekBar) findViewById(R.id.volumeBar);
+        volbar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                                              @Override
+                                              public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                                                  if (mAudioServiceBinder == null) {
+                                                      return;
+                                                  }
+                                                  mAudioServiceBinder.setVolume(progress);
+                                              }
+
+                                              @Override
+                                              public void onStartTrackingTouch(SeekBar seekBar) {
+                                              }
+
+                                              @Override
+                                              public void onStopTrackingTouch(SeekBar seekBar) {
+                                              }
+                                          }
+        );
 
         mReconnecter = new AutoReconnecter(new Runnable() {
             @Override
@@ -102,25 +193,31 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void run() {
                 runOnUiThread(
-                    new Runnable() {
-                              @Override
-                              public void run () {
-                              if (mAudioServiceBinder == null) {
-                                  return;
-                              }
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                if (mAudioServiceBinder == null) {
+                                    return;
+                                }
 
-                              TextView t;
+                                TextView t;
 
-                              t = (TextView) findViewById(R.id.recvBytes);
-                              t.setText(Formatter.formatFileSize(getApplicationContext(), mAudioServiceBinder.getBytesReceived()));
+                                t = (TextView) findViewById(R.id.recvBytes);
+                                t.setText(Formatter.formatFileSize(getApplicationContext(), mAudioServiceBinder.getBytesReceived()));
 
-                              t = (TextView) findViewById(R.id.audioState);
-                              t.setText(mAudioServiceBinder.isAudioActive() ? "Active" : "Silent");
+                                t = (TextView) findViewById(R.id.audioState);
+                                t.setText(mAudioServiceBinder.isAudioActive() ? "Active" : "Silent");
 
-                              t = (TextView) findViewById(R.id.status);
-                              t.setText(mAudioServiceBinder.isConnected() ? "Connected" : "Not Connected");
-                              }
-                          }
+                                t = (TextView) findViewById(R.id.status);
+                                t.setText(mAudioServiceBinder.isConnected() ? "Connected" : "Not Connected");
+
+                                t = (TextView) findViewById(R.id.volumeLabel);
+                                t.setText(String.format("%d", mAudioServiceBinder.getVolume()));
+
+                                SeekBar sb = (SeekBar) findViewById(R.id.volumeBar);
+                                sb.setMax(mAudioServiceBinder.getMaxVolume());
+                            }
+                        }
                 );
 
             }
@@ -130,13 +227,28 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        mReconnecter.stop();
         unbindService(mConnection);
+        try {
+            mStatsSocket.closeBlocking();
+        } catch (InterruptedException e) {
+            Log.e("Main", e.getMessage());
+        }
         super.onDestroy();
     }
 
     private long lastStatsTime = 0;
 
     private void connectStats() {
+        if (mStatsSocket != null) {
+            try {
+                mStatsSocket.closeBlocking();
+            } catch(InterruptedException e) {
+                Log.e("WebsocketStats", e.getMessage());
+            }
+        }
+
+        Log.i("main", "connectStats");
         URI uri;
         try {
             // TODO: more generic.
@@ -146,7 +258,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        mStatsSocket = new WebSocketClient(uri) {
+        mStatsSocket = new WebSocketClient(uri, new Draft_6455(), null, 1000) {
             @Override
             public void onOpen(ServerHandshake serverHandshake) {
                 Log.i("WebsocketStats", "Opened");
@@ -173,13 +285,13 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(
                         new Runnable() {
                             @Override
-                            public void run () {
+                            public void run() {
                                 TextView t;
 
                                 // TODO: limit text updates.
 
                                 if (System.currentTimeMillis() - lastStatsTime > 200) {
-                                   lastStatsTime = System.currentTimeMillis();
+                                    lastStatsTime = System.currentTimeMillis();
 
                                     t = (TextView) findViewById(R.id.level);
                                     t.setText(String.format("%.1f%%", level));
@@ -209,11 +321,21 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onError(Exception e) {
-                Log.i("WebsocketStats", "Error " + e.getMessage());
+                Log.e("WebsocketStats", "Error " + e.getMessage());
             }
         };
         mReconnecter.setClient(mStatsSocket);
+
+        // TODO timeout for connect so it works correctly...
         mStatsSocket.connect();
+        /*
+        try {
+            //mStatsSocket.connectBlocking();
+            mStatsSocket.connect();
+        } catch(InterruptedException e) {
+            Log.e("WebsocketStats", e.getMessage());
+        }*/
+        Log.i("main", "just connected to stats client.");
     }
 
 
