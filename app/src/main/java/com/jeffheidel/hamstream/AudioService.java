@@ -1,39 +1,30 @@
 package com.jeffheidel.hamstream;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.drawable.Icon;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.net.ConnectivityManager;
-import android.os.Handler;
-import android.util.Log;
-import android.app.Service;
-import android.content.Intent;
+import android.net.NetworkInfo;
+import android.os.Binder;
 import android.os.IBinder;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiManager;
-
-import java.util.Arrays;
-import java.util.List;
+import android.util.Log;
 
 import org.java_websocket.WebSocket;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
-import org.java_websocket.drafts.Draft_6455;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
-import java.util.Optional;
-import java.util.Timer;
-import java.util.TimerTask;
-import android.app.Notification;
-import android.os.Binder;
-import 	android.app.NotificationManager;
-import java.lang.Math;
-import android.net.NetworkInfo;
 
 public class AudioService extends Service {
     public static final String LOG = "AudioService";
@@ -96,11 +87,13 @@ public class AudioService extends Service {
         return START_STICKY;
     }
 
-    public Notification buildPersistentNotification() {
+    public Notification buildPersistentNotification(String channelID) {
         Intent intent = new Intent(this, MainActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification notification = new Notification.Builder(this)
+
+
+        Notification notification = new Notification.Builder(this, channelID)
                 .setContentTitle("HamStream active")
                 .setContentText("Currently streaming live audio")
                 .setLargeIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
@@ -118,8 +111,14 @@ public class AudioService extends Service {
 
         mAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
-        Notification notification = buildPersistentNotification();
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        String channelID = "hamstream";
+        NotificationChannel channel = new NotificationChannel(channelID, "Hamstream Audio Service", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("Realtime streaming service for ham audio");
+        manager.createNotificationChannel(channel);
+
+        Notification notification = buildPersistentNotification(channelID);
         manager.notify(ONGOING_NOTIFICATION_ID, notification);
         startForeground(ONGOING_NOTIFICATION_ID, notification);
 
@@ -147,17 +146,16 @@ public class AudioService extends Service {
         // TODO move this to a periodic thread.
 
 
-        WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+        //WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
 
-
-        List<WifiConfiguration> conf = wifiManager.getConfiguredNetworks();
+        //List<WifiConfiguration> conf = wifiManager.getConfiguredNetworks();
 
         // TODO handle not found.
-        WifiConfiguration hamNet = conf.stream().filter(x -> x.SSID.equals("\"JH M HAM\"")).findFirst().get();
+        //WifiConfiguration hamNet = conf.stream().filter(x -> x.SSID.equals("\"JH M HAM\"")).findFirst().get();
 
-        Log.i(LOG, "Found target ham network: " + hamNet.toString());
+        // Log.i(LOG, "Found target ham network: " + hamNet.toString());
 
-        Log.i(LOG, "Current connection: " + wifiManager.getConnectionInfo().getSSID());
+        // Log.i(LOG, "Current connection: " + wifiManager.getConnectionInfo().getSSID());
 
         /*
         if (!wifiManager.getConnectionInfo().getSSID().equals(hamNet.SSID)) {
@@ -170,12 +168,7 @@ public class AudioService extends Service {
         }
         */
 
-        // TODO make better.
-
-
-
-
-
+        // TODO implement automatic connection to the target network.
     }
 
     public void onDestroy() {
@@ -199,12 +192,42 @@ public class AudioService extends Service {
 
         mDucker = new AudioDucker(mAudioManager);
 
-        // Using notification stream to allow separate music mixing.
-        mAudioTrack = new AudioTrack(AudioManager.STREAM_VOICE_CALL, 48000, AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, byteBuffer,
-                AudioTrack.MODE_STREAM);
-        mAudioTrack.play();
+        /*
+        Deprecated audio track API call
 
+        // Using notification stream to allow separate music mixing.
+        mAudioTrack = new AudioTrack(
+                // stream type
+                AudioManager.STREAM_VOICE_CALL,
+                // sample rate in hz
+                48000,
+                // channel config
+                AudioFormat.CHANNEL_OUT_MONO,
+                // audio format
+                AudioFormat.ENCODING_PCM_16BIT,
+                // buffer size in bytes
+                byteBuffer,
+                // mode
+                AudioTrack.MODE_STREAM);
+                 */
+
+        // TODO add mode for "USAGE_MEDIA" to get output on the media channel.
+
+        mAudioTrack = new AudioTrack.Builder()
+                .setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build())
+                .setAudioFormat(new AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(48000)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build())
+                .setBufferSizeInBytes(byteBuffer)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .build();
+
+        mAudioTrack.play();
     }
 
     // TODO reconnections

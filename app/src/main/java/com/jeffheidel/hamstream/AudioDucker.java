@@ -1,5 +1,7 @@
 package com.jeffheidel.hamstream;
 
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.util.Log;
@@ -14,6 +16,7 @@ public class AudioDucker {
     private AudioManager mAudioManager;
     private Handler mHandler;
     private Runnable mCancel = null;
+    private AudioFocusRequest mFocusRequest;
 
     private final AudioManager.OnAudioFocusChangeListener afChangeListener =
             new AudioManager.OnAudioFocusChangeListener() {
@@ -29,17 +32,25 @@ public class AudioDucker {
 
     public void tickle() {
         if (mCancel == null) {
-            int result = mAudioManager.requestAudioFocus(afChangeListener,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
 
+            mFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build())
+                    .setAcceptsDelayedFocusGain(false)
+                    .setWillPauseWhenDucked(false)
+                    .setOnAudioFocusChangeListener(afChangeListener)
+                    .build();
+
+            int result = mAudioManager.requestAudioFocus(mFocusRequest);
             if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 Log.i("AudioDucker", "Acquired audio focus");
                 Runnable r = new Runnable() {
                     public void run() {
                         Log.i("AudioDucker", "Releasing audio focus");
                         mCancel = null;
-                        mAudioManager.abandonAudioFocus(afChangeListener);
+                        mAudioManager.abandonAudioFocusRequest(mFocusRequest);
                     }
                 };
                 mCancel = r;
